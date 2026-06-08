@@ -1,0 +1,14 @@
+{
+    "player": {
+        "name": "Hero",
+        "level": 1,
+        "xp": 55,
+        "hp": 100,
+        "inventory": []
+    },
+    "habits": {
+        "drink-water": {
+            "streak": 2
+        }
+    }
+}
