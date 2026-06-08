@@ -1,94 +1,119 @@
-import json
 import os
 import random
+from typing import List, Dict
+from pydantic import BaseModel, Field
 
-DATA_FILE = "rpg_data.json"
+class PlayerModel(BaseModel):
+    name: str = 'Hero'
+    level: int = 1
+    xp: int = 0
+    hp: int = 100
+    inventory: List[str] = Field(default_factory=list)
 
-def load_data()->dict:
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, 'r') as f:
-            return json.load(f)
-    return {
-        "player": {
-            "name": "Hero",
-            "level": 1,
-            "xp": 0,
-            "hp": 100,
-            "inventory": []
-        },
-        "habits": {}
-    }
+    @property
+    def xp_needed(self) -> int:
+        return self.level * 100
 
-def save_data(data):
-    with open(DATA_FILE, 'w') as f:
-        json.dump(data, f, indent=4)
+class HabitModel(BaseModel):
+    streak: int = 0
+
+class GameStateModel(BaseModel):
+    player: PlayerModel = Field(default_factory=PlayerModel)
+    habits: Dict[str, HabitModel] = Field(default_factory=dict)
+
+class GameStateRepository:
+    def __init__(self, filepath: str = "rpg_data.json"):
+        self.filepath = filepath
+
+    def load(self):
+        if os.path.exists(self.filepath):
+            with open(self.filepath, 'r') as f:
+                return GameStateModel.model_validate_json(f.read())
+        return GameStateModel()
+            
+    def save(self, state: GameStateModel):
+        with open(self.filepath, 'w') as f:
+            f.write(state.model_dump_json(indent=4))
 
 ITEMS_POOL = ["Iron Sword", "Dragon Shield", "Health Potion", "Wizard Hat", "Shiny Coin", "Phoenix Down"]
 
-def check_level_up(player):
-    xp_needed = player["level"]*100
-    if player["xp"] >= xp_needed:
-        player["xp"] -= xp_needed
-        player["level"] += 1
-        player["hp"] = 100 # heal on new level
-        print(f"\nLEVEL UP! You are now Level {player['level']}!")
+class GameEngine:
+    def __init__(self, repo: GameStateRepository):
+        self.repo = repo
+        self.state = self.repo.load()
 
-def complete_habit(data, habit_name):
-    if habit_name not in data['habits']:
-        print("Habit not found")
-        return
-    
-    data["habits"][habit_name]["streak"] += 1
-    xp_gained = 20 + (data["habits"][habit_name]["streak"] * 5) #streak bonus
-    data["player"]["xp"] += xp_gained
+    def _check_level_up(self) -> None:
+        player = self.state.player
+        if player.xp >= player.xp_needed:
+            player.xp -= player.xp_needed
+            player.level += 1
+            player.hp = 100 # heal on new level
+            print(f"\nLEVEL UP! You are now Level {player.level}!")
 
-    print(f"\nConquered : {habit_name}!")
-    print(f"Gained {xp_gained} XP.")
+    def complete_habit(self, habit_name: str) -> None:
+        if habit_name not in self.state.habits:
+            print("Habit not found!")
+            return
+        
+        habit = self.state.habits[habit_name]
+        habit.streak += 1
+        xp_gained = 20 + (habit.streak * 5) #streak bonus
+        self.state.player.xp += xp_gained
 
-    # 30% chance of loot drop
-    if random.random() < 0.3:
-        item = random.choice(ITEMS_POOL)
-        data["player"]["inventory"].append(item)
-        print(f"Loot Drop: You found [{item}]!")
+        print(f"\nConquered : {habit_name}!")
+        print(f"Gained {xp_gained} XP.")
 
-    check_level_up(data['player'])
-    save_data(data)
+        # 30% chance of loot drop
+        if random.random() < 0.3:
+            item = random.choice(ITEMS_POOL)
+            self.state.player.inventory.append(item)
+            print(f"Loot Drop: You found [{item}]!")
 
-def fail_habit(data, habit_name):
-    if habit_name not in data['habits']:
-        print("Habit not found!")
-        return
-    
-    data["habits"][habit_name]["streak"] = 0
-    damage = 15
-    data["player"]["hp"] -= damage
-    print(f"\nFailed: {habit_name}! You took {damage} damage.")
+        self._check_level_up()
+        self.repo.save(self.state)
 
-    if data['player']['hp'] <= 0:
-        print("You died. Your gold and items are lost, HP reset to 50")
-        data["player"]["hp"] = 50
-        data["player"]["inventory"] = []
+    def fail_habit(self, habit_name: str) -> None:
+        if habit_name not in self.state.habits:
+            print("Habit not found!")
+            return
+        
+        habit = self.state.habits[habit_name]
+        habit.streak = 0
+        damage = 15
+        self.state.player.hp -= damage
+        print(f"\nFailed: {habit_name}! You took {damage} damage.")
 
-    save_data(data)
+        if self.state.player.hp <= 0:
+            print("You died. Your gold and items are lost, HP reset to 50")
+            self.state.player.hp = 50
+            self.state.player.inventory = []
 
-def show_dashboard(data):
-    p = data["player"]
-    print("\n" + "="*40)
-    print(f"🧙 {p['name']} | Lv. {p['level']} | HP: {p['hp']}/100 | XP: {p['xp']}/{p['level']*100}")
-    print(f"🎒 Inventory: {', '.join(p['inventory']) if p['inventory'] else 'Empty'}")
-    print("="*40)
-    print("\n⚡ YOUR QUESTS (HABITS):")
-    if not data["habits"]:
-        print("   No quests accepted yet. Add a habit!")
-    for name, info in data["habits"].items():
-        print(f"   - {name} (🔥 Streak: {info['streak']})")
-    print("="*40)
+        self.repo.save(self.state)
+
+    def add_habit(self, habit_name: str) -> None:
+        if habit_name and habit_name not in self.state.habits:
+            self.state.habits[habit_name] = HabitModel()
+            self.repo.save(self.state)
+
+    def show_dashboard(self) -> None:
+        p = self.state.player
+        print("\n" + "="*40)
+        print(f"🧙 {p.name} | Lv. {p.level} | HP: {p.hp}/100 | XP: {p.xp}/{p.level*100}")
+        print(f"🎒 Inventory: {', '.join(p.inventory) if p.inventory else 'Empty'}")
+        print("="*40)
+        print("\n⚡ YOUR QUESTS (HABITS):")
+        if not self.state.habits:
+            print("   No quests accepted yet. Add a habit!")
+        for name, info in self.state.habits.items():
+            print(f"   - {name} (🔥 Streak: {info.streak})")
+        print("="*40)
 
 def main():
-    data = load_data()
+    repo = GameStateRepository()
+    game = GameEngine(repo)
     
     while True:
-        show_dashboard(data)
+        game.show_dashboard()
         print("\n[1] Add New Quest (Habit)")
         print("[2] Complete Quest (Gain XP & Loot)")
         print("[3] Fail Quest (Take Damage)")
@@ -99,14 +124,13 @@ def main():
         if choice == "1":
             name = input("Enter quest name: ").strip()
             if name:
-                data["habits"][name] = {"streak": 0}
-                save_data(data)
+                game.add_habit(name)
         elif choice == "2":
             name = input("Which quest did you smash? ").strip()
-            complete_habit(data, name)
+            game.complete_habit(name)
         elif choice == "3":
             name = input("Which quest defeated you? ").strip()
-            fail_habit(data, name)
+            game.fail_habit(name)
         elif choice == "4":
             print("Goodbye, Adventurer!")
             break
