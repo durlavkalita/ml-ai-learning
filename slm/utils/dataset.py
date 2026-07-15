@@ -11,7 +11,7 @@ def split_into_sentences(content: str) -> list[str]:
 def split_into_words(sentence: str) -> list[tuple[list[str], str]]:
     sentence = sentence.replace("\n", "")
     words = sentence.split(" ")
-    training_list = []
+    training_list: list[tuple[list[str],str]] = []
     for i in range(len(words)-1):
         training_list.append((words[0:i+1], words[i+1]))
     return training_list
