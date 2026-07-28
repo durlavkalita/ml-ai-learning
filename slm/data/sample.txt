@@ -1,3 +1,0 @@
-I love pizza.
-Machine learning is fun.
-PyTorch makes deep learning easier.
